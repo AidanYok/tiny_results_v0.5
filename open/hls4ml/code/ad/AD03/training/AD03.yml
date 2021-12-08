@@ -21,7 +21,7 @@ model:
   encode_dim: 8
   hidden_dim: 64
   l1reg: 0
-  name: qkeras_model
+  name: keras_model
   quantization:
     bits: 10
     int_bits: 0
