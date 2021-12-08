@@ -369,6 +369,19 @@ if __name__ == "__main__":
                             callbacks=callbacks)
         qmodel = autoqk.get_best_model()
         qmodel.save(model_file_path)
+        
+        qmodel.load_weights(model_file_path)
+        with cur_strategy.scope():
+          optimizer = Adam(lr=0.02)
+          qmodel.compile(optimizer=optimizer, loss="categorical_crossentropy", metrics=["acc"])
+          qmodel.fit(train_data,
+                            train_data,
+                            epochs=param["fit"]["epochs"],
+                            batch_size=param["fit"]["batch_size"],
+                            shuffle=param["fit"]["shuffle"],
+                            validation_split=param["fit"]["validation_split"],
+                            verbose=param["fit"]["verbose"],
+                            callbacks=callbacks)
 
         #visualizer.loss_plot(history.history["loss"], history.history["val_loss"])
         #visualizer.save_figure(history_img)
