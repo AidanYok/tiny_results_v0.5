@@ -7,7 +7,7 @@ feature:
   n_mels: 128
   power: 2
 fit:
-  batch_size: 512
+  batch_size: 128
   compile:
     loss: mean_squared_error
     optimizer: adam
