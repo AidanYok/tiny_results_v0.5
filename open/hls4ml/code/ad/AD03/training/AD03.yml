@@ -12,14 +12,15 @@ fit:
     loss: mean_squared_error
     optimizer: adam
   epochs: 100
+  autoqEpochs : 30
   shuffle: true
   validation_split: 0.1
-  verbose: 1
+  verbose: 2
 max_fpr: 0.1
 model:
   batch_norm: true
   encode_dim: 8
-  hidden_dim: 64
+  hidden_dim: 128
   l1reg: 0
   name: keras_model
   quantization:

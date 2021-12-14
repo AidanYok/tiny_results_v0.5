@@ -42,10 +42,11 @@ from qkeras import *
 from qkeras.utils import model_quantize
 from qkeras.qtools import run_qtools
 from qkeras.qtools import settings as qtools_settings
+import pprint
 
 from tensorflow.keras.utils import to_categorical
-import tensorflow_datasets as tfds
-from tensorflow.keras.datasets import mnist
+#import tensorflow_datasets as tfds
+#from tensorflow.keras.datasets import mnist
 
 ########################################################################
 # visualizer
@@ -154,7 +155,6 @@ def file_list_generator(target_dir,
 # main 00_train.py
 ########################################################################
 if __name__ == "__main__":
-
     # check mode
     # "development": mode == True
     # "evaluation": mode == False
@@ -247,6 +247,58 @@ if __name__ == "__main__":
                                         lastIntBits=param["model"]["quantization"]["last_int_bits"])
         param["model"]["name"]
         model.summary()
+        #get energy profile
+        reference_internal = "fp32"
+        reference_accumulator = "fp32"
+
+        q = run_qtools.QTools(
+          model,
+          # energy calculation using a given process
+          # "horowitz" refers to 45nm process published at
+          # M. Horowitz, "1.1 Computing's energy problem (and what we can do about
+          # it), "2014 IEEE International Solid-State Circuits Conference Digest of
+          # Technical Papers (ISSCC), San Francisco, CA, 2014, pp. 10-14, 
+          # doi: 10.1109/ISSCC.2014.6757323.
+          process="horowitz",
+          # quantizers for model input
+          source_quantizers=[quantized_bits(8, 0, 1)],
+          is_inference=False,
+          # absolute path (including filename) of the model weights
+          # in the future, we will attempt to optimize the power model
+          # by using weight information, although it can be used to further
+          # optimize QBatchNormalization.
+          weights_path=None,
+          # keras_quantizer to quantize weight/bias in un-quantized keras layers
+          keras_quantizer=reference_internal,
+          # keras_quantizer to quantize MAC in un-quantized keras layers
+          keras_accumulator=reference_accumulator,
+          # whether calculate baseline energy
+          for_reference=True)
+
+        # caculate energy of the derived data type map.
+        energy_dict = q.pe(
+        # whether to store parameters in dram, sram, or fixed
+        weights_on_memory="sram",
+        # store activations in dram or sram
+        activations_on_memory="sram",
+        # minimum sram size in number of bits. Let's assume a 16MB SRAM.
+        min_sram_size=8*16*1024*1024,
+        # whether load data from dram to sram (consider sram as a cache
+        # for dram. If false, we will assume data will be already in SRAM
+        rd_wr_on_io=False)
+
+        # get stats of energy distribution in each layer
+        energy_profile = q.extract_energy_profile(
+        qtools_settings.cfg.include_energy, energy_dict)
+        # extract sum of energy of each layer according to the rule specified in
+        # qtools_settings.cfg.include_energy
+        total_energy = q.extract_energy_sum(
+        qtools_settings.cfg.include_energy, energy_dict)
+
+        pprint.pprint(energy_profile)
+        print()
+        print("Total energy: {:.2f} uJ".format(total_energy / 1000000.0))
+
         custom_objects = {}
         cur_strategy = tf.distribute.get_strategy()
 
@@ -259,12 +311,12 @@ if __name__ == "__main__":
                         "stochastic_binary": 1,
                         "ternary": 2,
                         "stochastic_ternary": 2,
-                        "quantized_bits(2,1,1,alpha=auto_po2)": 2,
-                        "quantized_bits(4,0,1,alpha=auto_po2)": 4,
-                        "quantized_bits(8,0,1,alpha=auto_po2)": 8,
-#                         "quantized_bits(2,1,1,alpha=1.0)": 2,
-#                         "quantized_bits(4,0,1,alpha=1.0)": 4,
-#                         "quantized_bits(8,0,1,alpha=1.0)": 8,
+                        #"quantized_bits(2,1,1,alpha=auto_po2)": 2,
+                        #"quantized_bits(4,0,1,alpha=auto_po2)": 4,
+                        #"quantized_bits(8,0,1,alpha=auto_po2)": 8,
+                        "quantized_bits(2,1,1,alpha=1.0)": 2,
+                        "quantized_bits(4,0,1,alpha=1.0)": 4,
+                        "quantized_bits(8,0,1,alpha=1.0)": 8,
                         "quantized_po2(4,1)": 4
                 },
                 "bias": {
@@ -297,13 +349,14 @@ if __name__ == "__main__":
             "DepthwiseConv2D": [4, 8, 4],
             "Activation": [4],
             "BatchNormalization": []
+            
         }
         goal = {
             "type": "energy",
             "params": {
                 "delta_p": 8.0,
                 "delta_n": 2.0,
-                "rate": 2.0,
+                "rate": 4.0,
                 "stress": 1.0,
                 "process": "horowitz",
                 "parameters_on_memory": ["sram", "sram"],
@@ -330,7 +383,7 @@ if __name__ == "__main__":
           "distribution_strategy": cur_strategy,
           # first layer is input, layer two layers are softmax and flatten
           "layer_indexes": range(1, len(model.layers) - 1),
-          "max_trials": 20
+          "max_trials": 1
         }
         print("quantizing layers:", [model.layers[i].name for i in run_config["layer_indexes"]])
 
@@ -338,7 +391,7 @@ if __name__ == "__main__":
 
         modelbestcheck = ModelCheckpoint(model_file_path,
                                          monitor='val_loss',
-                                         verbose=1,
+                                         verbose=2,
                                          save_best_only=True)
         stopping = EarlyStopping(monitor='val_loss',
                                  patience = 10 if param["pruning"]["constant"] == True else 10 if param["pruning"]["decay"] == True else 15, verbose=1, mode='min')
@@ -352,6 +405,10 @@ if __name__ == "__main__":
             stopping,
             reduce_lr,
         ]
+        autoqCallbacks = [
+                stopping,
+                reduce_lr,
+        ]
 
         model.compile(**param["fit"]["compile"])
 
@@ -361,19 +418,20 @@ if __name__ == "__main__":
         autoqk = AutoQKeras(model, metrics=["acc"], custom_objects=custom_objects, **run_config)
         history = autoqk.fit(train_data,
                             train_data,
-                            epochs=param["fit"]["epochs"],
+                            epochs=param["fit"]["autoqEpochs"],
                             batch_size=param["fit"]["batch_size"],
                             shuffle=param["fit"]["shuffle"],
                             validation_split=param["fit"]["validation_split"],
                             verbose=param["fit"]["verbose"],
-                            callbacks=callbacks)
+                            callbacks=autoqCallbacks)
+                            
         qmodel = autoqk.get_best_model()
-        qmodel.save(model_file_path)
+        qmodel.save('./model/ad03/qmodel.h5')
+#         qmodel.save_weights(model_file_path)
         
-        qmodel.load_weights(model_file_path)
+#         qmodel.load_weights(model_file_path)
         with cur_strategy.scope():
-          optimizer = Adam(lr=0.02)
-          qmodel.compile(optimizer=optimizer, loss="categorical_crossentropy", metrics=["acc"])
+          qmodel.compile(**param["fit"]["compile"])
           qmodel.fit(train_data,
                             train_data,
                             epochs=param["fit"]["epochs"],
@@ -381,10 +439,12 @@ if __name__ == "__main__":
                             shuffle=param["fit"]["shuffle"],
                             validation_split=param["fit"]["validation_split"],
                             verbose=param["fit"]["verbose"],
-                            callbacks=callbacks)
+                            callbacks=autoqCallbacks)
+        qmodel.save(model_file_path)
 
         #visualizer.loss_plot(history.history["loss"], history.history["val_loss"])
         #visualizer.save_figure(history_img)
 
         com.logger.info("save_model -> {}".format(model_file_path))
+        qmodel.summary()
         print("============== END TRAINING ==============")
