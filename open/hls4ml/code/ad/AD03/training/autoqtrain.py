@@ -47,45 +47,6 @@ from tensorflow.keras.utils import to_categorical
 import tensorflow_datasets as tfds
 from tensorflow.keras.datasets import mnist
 
-########################################################################
-# visualizer
-########################################################################
-class visualizer(object):
-    def __init__(self):
-        import matplotlib.pyplot as plt
-        self.plt = plt
-        self.fig = self.plt.figure(figsize=(30, 10))
-        self.plt.subplots_adjust(wspace=0.3, hspace=0.3)
-
-    def loss_plot(self, loss, val_loss):
-        """
-        Plot loss curve.
-        loss : list [ float ]
-            training loss time series.
-        val_loss : list [ float ]
-            validation loss time series.
-        return   : None
-        """
-        ax = self.fig.add_subplot(1, 1, 1)
-        ax.cla()
-        ax.plot(loss)
-        ax.plot(val_loss)
-        ax.set_title("Model loss")
-        ax.set_xlabel("Epoch")
-        ax.set_ylabel("Loss")
-        ax.legend(["Train", "Validation"], loc="upper right")
-
-    def save_figure(self, name):
-        """
-        Save figure.
-        name : str
-            save png file path.
-        return : None
-        """
-        self.plt.savefig(name)
-
-
-########################################################################
 
 
 def list_to_vector_array(file_list,
@@ -165,10 +126,7 @@ if __name__ == "__main__":
 
     # make output directory
     os.makedirs(param["model_directory"], exist_ok=True)
-
-    # initialize the visualizer
-    visualizer = visualizer()
-
+    
     # load base_directory list
     dirs = com.select_dirs(param=param)
 
@@ -259,12 +217,9 @@ if __name__ == "__main__":
                         "stochastic_binary": 1,
                         "ternary": 2,
                         "stochastic_ternary": 2,
-                        "quantized_bits(2,1,1,alpha=auto_po2)": 2,
-                        "quantized_bits(4,0,1,alpha=auto_po2)": 4,
-                        "quantized_bits(8,0,1,alpha=auto_po2)": 8,
-#                         "quantized_bits(2,1,1,alpha=1.0)": 2,
-#                         "quantized_bits(4,0,1,alpha=1.0)": 4,
-#                         "quantized_bits(8,0,1,alpha=1.0)": 8,
+                        "quantized_bits(2,1,1,alpha=1.0)": 2,
+                        "quantized_bits(4,0,1,alpha=1.0)": 4,
+                        "quantized_bits(8,0,1,alpha=1.0)": 8,
                         "quantized_po2(4,1)": 4
                 },
                 "bias": {
@@ -330,7 +285,7 @@ if __name__ == "__main__":
           "distribution_strategy": cur_strategy,
           # first layer is input, layer two layers are softmax and flatten
           "layer_indexes": range(1, len(model.layers) - 1),
-          "max_trials": 20
+          "max_trials": 10
         }
         print("quantizing layers:", [model.layers[i].name for i in run_config["layer_indexes"]])
 
@@ -368,9 +323,8 @@ if __name__ == "__main__":
                             verbose=param["fit"]["verbose"],
                             callbacks=callbacks)
         qmodel = autoqk.get_best_model()
-        qmodel.save(model_file_path)
+        qmodel.save('model/ad03/qmodel.h5')
         
-        qmodel.load_weights(model_file_path)
         with cur_strategy.scope():
           optimizer = Adam(lr=0.02)
           qmodel.compile(optimizer=optimizer, loss="categorical_crossentropy", metrics=["acc"])
@@ -385,6 +339,7 @@ if __name__ == "__main__":
 
         #visualizer.loss_plot(history.history["loss"], history.history["val_loss"])
         #visualizer.save_figure(history_img)
-
+        qmodel.save(model_file_path))
         com.logger.info("save_model -> {}".format(model_file_path))
         print("============== END TRAINING ==============")
+        qmodel.summary()
