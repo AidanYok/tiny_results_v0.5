@@ -7,10 +7,11 @@ feature:
   n_mels: 128
   power: 2
 fit:
-  batch_size: 128
+  batch_size: 512
   compile:
     loss: mean_squared_error
     optimizer: adam
+  qepochs: 30
   epochs: 100
   shuffle: true
   validation_split: 0.1
@@ -19,7 +20,7 @@ max_fpr: 0.1
 model:
   batch_norm: true
   encode_dim: 8
-  hidden_dim: 64
+  hidden_dim: 128
   l1reg: 0
   name: keras_model
   quantization:
